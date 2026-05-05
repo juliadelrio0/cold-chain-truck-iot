@@ -1,0 +1,5 @@
+streamlit
+azure-cosmos
+python-dotenv
+pandas
+plotly
