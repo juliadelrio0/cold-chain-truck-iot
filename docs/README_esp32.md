@@ -184,7 +184,7 @@ Two semaphores are used:
 Use the sketch:
 
 ```
-descubrirID_sin_param.ino
+descubrirID.ino
 ```
 
 This retrieves the device ID using:
