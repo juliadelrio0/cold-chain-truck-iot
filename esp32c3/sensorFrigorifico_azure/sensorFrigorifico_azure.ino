@@ -25,6 +25,7 @@
 SemaphoreHandle_t semMqttReady;
 SemaphoreHandle_t mqttMutex;
 int periodo = 30;
+bool send_gps = false;
 
 // ------ SENSORES -------------
 // Sensor DS18b20: Temperatura --> GPIO4
@@ -373,7 +374,7 @@ void taskPublisher(void *pvParameters) {
     getTimestamp(when, sizeof(when));
 
     // ---- TRANSFORMAMOS A JSON ---- 
-    StaticJsonDocument<200> doc;
+    StaticJsonDocument<250> doc;
     doc["id"] = DEVICE_ID;
     doc["temperature"]    = temp;
     doc["humidity"]       = hum;
@@ -408,7 +409,7 @@ void taskPublisher(void *pvParameters) {
 
     doc["when"]        = when;
 
-    char payload[200];
+    char payload[250];
     serializeJson(doc, payload);
 
     Serial.println(DEBUG_STRING+" Mensaje periódico a enviar: " + payload);
