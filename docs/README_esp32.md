@@ -109,30 +109,41 @@ az iot hub generate-sas-token \
 }
 ```
 
----
-
-## Remote Commands
-
-### Request GPS Data
-
-```
-{
-  "gps": true
-  "message": "text"
-}
-```
-
-Response in publish topic:
+or
 
 ```
 {
   "id": "...",
-  "longitude": ...,
-  "latitude": ...,
-  "course": ..., // degree
+  "temperature": 0.0, // ºC
+  "humidity": 0.0, // %
+  "acceleration": [x, y, z],
+  "angular_speed": [x, y, z],
+  "linear_speed": 0.0, // km/h
+  "gps":{
+    "longitude": ...,
+    "latitude": ...,
+    "course": ... // degree
+  }
   "when": "timestamp"
 }
 ```
+
+---
+
+## Remote Commands
+
+### Toggle GPS Data in Telemetry
+
+```
+{
+  "gps": True
+  "message": "text"
+}
+```
+
+* Updates the internal variable `send_gps`
+* When `send_gps` is true, GPS data (longitude, latitude, course) is included in the periodic telemetry
+* When `send_gps` is false, GPS data is not sent
 
 ---
 
@@ -158,6 +169,24 @@ Response in publish topic:
 ```
 
 * Printed in the Serial Monitor
+
+---
+
+### Command Acknowledgement
+
+* Every received command generates a confirmation message from the device.
+* The confirmation is sent back through MQTT.
+* A format of the message sent could be:
+
+```
+{
+  "id": "...",
+  "new_gps": send_gps,
+  "new_period": periodo,
+  "when": "timestamp"
+}
+```
+
 
 ---
 

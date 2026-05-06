@@ -100,7 +100,7 @@ void getTimestamp(char* buf, size_t len) {
 // Espera: 
 //     -> {"period": 5, "message": "period changed"}
 //     -> {"gps": True, "message": "GPS required"}
-//     -> {"period": 5, "gps": True, "message": "period changed and gps required"}
+//     -> {"period": 5, "gps": False, "message": "period changed and gps required"}
 void message_handler(char* topic, byte* payload, unsigned int length) {
   
   Serial.println("-------------------------------------------------------------------------");
@@ -116,46 +116,40 @@ void message_handler(char* topic, byte* payload, unsigned int length) {
     return;
   }
 
-  // Comprobamos si solicita información GPS
-  if (doc.containsKey("gps")){
-    if (doc["gps"]) {
-      Serial.println(DEBUG_STRING+"Solicitud de ubicación GPS recibida");
-
-      read_gps(true);
-      char when[32];
-      getTimestamp(when, sizeof(when));
-
-      // ---- TRANSFORMAMOS A JSON ---- 
-      StaticJsonDocument<200> docGPS;
-      docGPS["id"] = DEVICE_ID;
-      if (gps.location.isValid()){
-        docGPS["longitude"]  = gps.location.lng();
-        docGPS["latitude"]   = gps.location.lat();
-      }else{
-        docGPS["longitude"]  = NULL;
-        docGPS["latitude"]   = NULL;
-      }
-      docGPS["course"]     = gps.course.deg();
-      docGPS["when"]        = when;
-
-      char payload[200];
-      serializeJson(docGPS, payload);
-
-      Serial.println(DEBUG_STRING+" Mensaje urgente a enviar: " + payload);
-
-      Serial.println(DEBUG_STRING+"Publicando, esperando semáforo...");
-      xSemaphoreTake(mqttMutex, portMAX_DELAY);
-      mqttClient.publish(telemetryTopic, payload);
-      xSemaphoreGive(mqttMutex);
-      Serial.println(DEBUG_STRING+"Mensaje publicado");
-  
-    }
-  }
-
-
+  send_gps = doc["gps"] | send_gps;
   periodo = doc["period"] | periodo;          // actualiza periodo si viene el campo
   const char* msg = doc["message"] | "";    // imprime el mensaje si viene
   if (strlen(msg) > 0) Serial.println(DEBUG_STRING+msg);
+
+  // Creamos JSON de confirmación
+  StaticJsonDocument<200> docConfirm;
+  char when[32];
+  getTimestamp(when, sizeof(when));
+
+  docConfirm["id"] = DEVICE_ID;
+  // Comprobamos qué datos hemos cambiado
+  if (doc.containsKey("gps")){
+    Serial.println(DEBUG_STRING+"Solicitud de cambio en ubicación recibida. Nuevo estado: " + send_gps);
+    docConfirm["new_gps"] = send_gps;
+  }
+  if(doc.containsKey("period")){
+    Serial.println(DEBUG_STRING+"Solicitud de cambio en el periodo. Publicación cada: " + periodo);
+    docConfirm["new_period"] = periodo;
+  }
+  docConfirm["when"] = when;
+
+  char payloadConf[200];
+  serializeJson(docConfirm, payloadConf);
+
+  Serial.println(DEBUG_STRING+" Mensaje de confirmación a enviar: " + payloadConf);
+
+  Serial.println(DEBUG_STRING+"Publicando, esperando semáforo...");
+  xSemaphoreTake(mqttMutex, portMAX_DELAY);
+  mqttClient.publish(telemetryTopic, payloadConf);
+  xSemaphoreGive(mqttMutex);
+  Serial.println(DEBUG_STRING+"Mensaje publicado");
+
+
   Serial.println("-------------------------------------------------------------------------");
 }
 
@@ -395,6 +389,23 @@ void taskPublisher(void *pvParameters) {
     gyro.add(GyroZ);
 
     doc["lineal_speed"]   = gps.speed.kmph();
+
+    // Si solicitan enviar información gps a tiempo real
+    if(send_gps){
+      StaticJsonDocument<200> docGPS;
+      if (gps.location.isValid()){
+        docGPS["longitude"]  = gps.location.lng();
+        docGPS["latitude"]   = gps.location.lat();
+      }else{
+        docGPS["longitude"]  = NULL;
+        docGPS["latitude"]   = NULL;
+      }
+      docGPS["course"]     = gps.course.deg();
+
+      //Agregamos en un campo GPS
+      doc["gps"] = docGPS.as<JsonObject>();
+    }
+
     doc["when"]        = when;
 
     char payload[200];
