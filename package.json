@@ -1,0 +1,9 @@
+{
+  "name": "func-camion",
+  "version": "1.0.0",
+  "description": "Azure Function for refrigerated truck monitoring",
+  "dependencies": {
+    "@azure/cosmos": "^4.0.0",
+    "@azure/service-bus": "^7.0.0"
+  }
+}
