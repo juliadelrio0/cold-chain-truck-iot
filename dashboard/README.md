@@ -20,6 +20,7 @@ COSMOS_URL=
 COSMOS_KEY=
 COSMOS_DATABASE=
 COSMOS_CONTAINER=
+IOT_HUB_CONNECTION_STRING=
 ```
 
 > **Important**: Do not commit the real `.env` file.
