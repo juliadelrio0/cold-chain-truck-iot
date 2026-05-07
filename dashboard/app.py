@@ -37,8 +37,8 @@ SPEED_LIMIT   = 90    # km/h
 ACCEL_LIMIT = 0.8
 
 st.set_page_config(
-    page_title="Cold Chain Truck -- Operations Dashboard",
-    page_icon="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg'/>",
+    page_title="Cold Chain Truck",
+    page_icon="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect x='6' y='22' width='34' height='22' rx='3' fill='%231565c0'/><rect x='40' y='30' width='14' height='14' rx='2' fill='%230a1e3d'/><circle cx='18' cy='48' r='5' fill='%230f2544'/><circle cx='46' cy='48' r='5' fill='%230f2544'/><text x='15' y='38' font-size='16' fill='white'>❄</text></svg>",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
@@ -440,6 +440,126 @@ def render_metric_card(label: str, value, unit: str = ""):
     )
 
 
+def build_html_report(report_df: pd.DataFrame, device_label: str, alerts: list[dict]) -> str:
+    generated_at = datetime.now().strftime("%d %b %Y %H:%M:%S")
+
+    latest_temperature = get_latest_value(report_df, "temperature")
+    latest_humidity = get_latest_value(report_df, "humidity")
+    latest_speed = get_latest_value(report_df, "linear_speed")
+    latest_record = get_latest_value(report_df, "when")
+
+    def format_value(value, unit=""):
+        if value is None or pd.isna(value):
+            return "No data"
+        if isinstance(value, (int, float)):
+            return f"{value:.2f}{unit}"
+        if hasattr(value, "strftime"):
+            return value.strftime("%d %b %Y %H:%M:%S")
+        return f"{value}{unit}"
+
+    if alerts:
+        alerts_html = "".join(
+            f"<li>{alert['text']}</li>"
+            for alert in alerts
+        )
+    else:
+        alerts_html = "<li>No active alerts.</li>"
+
+    if "temperature" in report_df.columns:
+        min_temp = format_value(report_df["temperature"].min(), " °C")
+        max_temp = format_value(report_df["temperature"].max(), " °C")
+    else:
+        min_temp = max_temp = "No data"
+
+    if "humidity" in report_df.columns:
+        min_humidity = format_value(report_df["humidity"].min(), " %")
+        max_humidity = format_value(report_df["humidity"].max(), " %")
+    else:
+        min_humidity = max_humidity = "No data"
+
+    return f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <title>Cold Chain Truck Report</title>
+        <style>
+            body {{
+                font-family: Arial, sans-serif;
+                margin: 40px;
+                color: #0f2544;
+            }}
+            h1 {{
+                color: #0f2544;
+                border-bottom: 3px solid #1565c0;
+                padding-bottom: 10px;
+            }}
+            h2 {{
+                margin-top: 28px;
+                color: #1565c0;
+            }}
+            .card {{
+                border: 1px solid #dde3ed;
+                border-radius: 8px;
+                padding: 16px;
+                margin-bottom: 14px;
+                background: #f8fafc;
+            }}
+            table {{
+                width: 100%;
+                border-collapse: collapse;
+                margin-top: 12px;
+            }}
+            th, td {{
+                border: 1px solid #dde3ed;
+                padding: 8px;
+                text-align: left;
+                font-size: 13px;
+            }}
+            th {{
+                background: #eaf2fb;
+            }}
+        </style>
+    </head>
+    <body>
+        <h1>Cold Chain Truck Report</h1>
+
+        <div class="card">
+            <strong>Generated at:</strong> {generated_at}<br>
+            <strong>Selected device:</strong> {device_label}<br>
+            <strong>Number of records:</strong> {len(report_df)}
+        </div>
+
+        <h2>Latest Readings</h2>
+        <table>
+            <tr><th>Metric</th><th>Value</th></tr>
+            <tr><td>Temperature</td><td>{format_value(latest_temperature, " °C")}</td></tr>
+            <tr><td>Humidity</td><td>{format_value(latest_humidity, " %")}</td></tr>
+            <tr><td>Speed</td><td>{format_value(latest_speed, " km/h")}</td></tr>
+            <tr><td>Last record</td><td>{format_value(latest_record)}</td></tr>
+        </table>
+
+        <h2>Range Summary</h2>
+        <table>
+            <tr><th>Metric</th><th>Minimum</th><th>Maximum</th></tr>
+            <tr><td>Temperature</td><td>{min_temp}</td><td>{max_temp}</td></tr>
+            <tr><td>Humidity</td><td>{min_humidity}</td><td>{max_humidity}</td></tr>
+        </table>
+
+        <h2>Alerts</h2>
+        <ul>
+            {alerts_html}
+        </ul>
+
+        <p>
+            This report summarizes the telemetry data stored in Azure CosmosDB
+            for the selected refrigerated truck device.
+        </p>
+    </body>
+    </html>
+    """
+
+
 now_str  = datetime.now().strftime("%d %b %Y")
 time_str = datetime.now().strftime("%H:%M")
 
@@ -484,25 +604,56 @@ if df.empty:
     st.stop()
 
 
+# ── Device filter ────────────────────────────────────────────────────────────
+st.markdown('<span class="section-heading">Device Selection</span>', unsafe_allow_html=True)
+
+device_options = []
+
+if "deviceId" in df.columns:
+    device_options = sorted(df["deviceId"].dropna().unique().tolist())
+elif "id" in df.columns:
+    device_options = sorted(df["id"].dropna().unique().tolist())
+
+if device_options:
+    selected_dashboard_device = st.selectbox(
+        "Device to visualize",
+        ["All devices"] + device_options,
+        help="Select a specific device to display its sensor readings, charts and records.",
+    )
+
+    if selected_dashboard_device == "All devices":
+        df_view = df.copy()
+    else:
+        if "deviceId" in df.columns:
+            df_view = df[df["deviceId"] == selected_dashboard_device].copy()
+        else:
+            df_view = df[df["id"] == selected_dashboard_device].copy()
+else:
+    selected_dashboard_device = "All devices"
+    df_view = df.copy()
+
+st.markdown('<hr class="divider">', unsafe_allow_html=True)
+
+
 st.markdown('<span class="section-heading">Current Readings</span>', unsafe_allow_html=True)
 
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
-    render_metric_card("Temperature", get_latest_value(df, "temperature"), " °C")
+    render_metric_card("Temperature Sensor", get_latest_value(df_view, "temperature"), " °C")
 with col2:
-    render_metric_card("Relative Humidity", get_latest_value(df, "humidity"), " %")
+    render_metric_card("Humidity Sensor", get_latest_value(df_view, "humidity"), " %")
 with col3:
-    render_metric_card("Vehicle Speed", get_latest_value(df, "linear_speed"), " km/h")
+    render_metric_card("Speed Sensor", get_latest_value(df_view, "linear_speed"), " km/h")
 with col4:
-    render_metric_card("Last Record", get_latest_value(df, "when"))
+    render_metric_card("Last Record", get_latest_value(df_view, "when"))
 
 st.markdown('<hr class="divider">', unsafe_allow_html=True)
 
 
 st.markdown('<span class="section-heading">Active Alerts</span>', unsafe_allow_html=True)
 
-alerts = detect_alerts(df)
+alerts = detect_alerts(df_view)
 
 if alerts:
     for alert in alerts:
@@ -635,7 +786,7 @@ st.markdown('<hr class="divider">', unsafe_allow_html=True)
 
 st.markdown('<span class="section-heading">Sensor Trends</span>', unsafe_allow_html=True)
 
-df_time = df.copy()
+df_time = df_view.copy()
 if "when" in df_time.columns:
     df_time = df_time.dropna(subset=["when"]).sort_values("when")
 
@@ -719,8 +870,8 @@ st.markdown('<hr class="divider">', unsafe_allow_html=True)
 
 st.markdown('<span class="section-heading">Vehicle Location</span>', unsafe_allow_html=True)
 
-if "latitude" in df.columns and "longitude" in df.columns:
-    gps_df = df.dropna(subset=["latitude", "longitude"]).copy()
+if "latitude" in df_view.columns and "longitude" in df_view.columns:
+    gps_df = df_view.dropna(subset=["latitude", "longitude"]).copy()
 
     if not gps_df.empty:
         gps_df = gps_df.rename(columns={"latitude": "lat", "longitude": "lon"})
@@ -781,15 +932,15 @@ preferred_columns = [
 
 columns_to_show = [
     col for col in preferred_columns
-    if col in df.columns and col not in COSMOS_INTERNAL_FIELDS
+    if col in df_view.columns and col not in COSMOS_INTERNAL_FIELDS
 ]
 
 if not columns_to_show:
     columns_to_show = [
-        col for col in df.columns if col not in COSMOS_INTERNAL_FIELDS
+        col for col in df_view.columns if col not in COSMOS_INTERNAL_FIELDS
     ]
 
-display_df = df[columns_to_show].copy()
+display_df = df_view[columns_to_show].copy()
 
 if "when" in display_df.columns:
     display_df = display_df.sort_values("when", ascending=False)
@@ -816,6 +967,52 @@ if "angular_speed" in display_df.columns:
     )
     display_df = display_df.drop(columns=["angular_speed"])
 st.dataframe(display_df, width='stretch', hide_index=True)
+
+
+st.markdown('<hr class="divider">', unsafe_allow_html=True)
+st.markdown('<span class="section-heading">Report Export</span>', unsafe_allow_html=True)
+
+report_html = build_html_report(
+    report_df=df_view,
+    device_label=selected_dashboard_device,
+    alerts=alerts,
+)
+
+report_file_name = (
+    f"cold_chain_report_{selected_dashboard_device}.html"
+    .replace(" ", "_")
+    .replace("/", "_")
+)
+
+csv_file_name = (
+    f"cold_chain_records_{selected_dashboard_device}.csv"
+    .replace(" ", "_")
+    .replace("/", "_")
+)
+
+report_col1, report_col2 = st.columns(2)
+
+with report_col1:
+    st.download_button(
+        label="Download printable HTML report",
+        data=report_html,
+        file_name=report_file_name,
+        mime="text/html",
+        width="stretch",
+    )
+
+with report_col2:
+    st.download_button(
+        label="Download telemetry records as CSV",
+        data=display_df.to_csv(index=False).encode("utf-8"),
+        file_name=csv_file_name,
+        mime="text/csv",
+        width="stretch",
+    )
+
+st.info(
+    "To print the report, download the HTML file, open it in a browser and use Print or Save as PDF."
+)
 
 
 st.markdown(
