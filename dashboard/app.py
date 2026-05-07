@@ -242,7 +242,7 @@ def get_container():
 def load_telemetry_data():
     container = get_container()
     query = """
-    SELECT TOP 100 *
+    SELECT TOP 200 *
     FROM c
     ORDER BY c._ts DESC
     """
@@ -255,6 +255,54 @@ def load_telemetry_data():
 def prepare_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return df
+
+    # ──── Extract body field ──────────────────────────────────────────────────
+    if "Body" in df.columns:
+
+        body_fields = [
+            "id",
+            "temperature",
+            "humidity",
+            "linear_speed",
+            "lineal_speed",
+            "gps",
+            "acceleration",
+            "angular_speed",
+            "when",
+            "timestamp",
+            "new_gps",
+            "new_period"
+        ]
+
+        for field in body_fields:
+            if field not in df.columns:
+                df[field] = df["Body"].apply(
+                    lambda body: body.get(field, None)
+                )
+            elif field == "id":
+                df[field] = df["Body"].apply(
+                    lambda body: body.get(field, None)
+                )
+        
+        # ──── Handling GPS ────
+        df["latitude"] = df["Body"].apply(lambda b: b.get("gps", {}).get("latitude"))
+        df["longitude"] = df["Body"].apply(lambda b: b.get("gps", {}).get("longitude"))
+        df["course"] = df["Body"].apply(
+            lambda b: (
+                b.get("gps", {}).get("course") or
+                b.get("gps", {}).get("heading") or
+                b.get("gps", {}).get("bearing")
+            )
+        )
+
+
+
+    # ──── Extract real device id ──────────────────────────────────────────────────
+    if "SystemProperties" in df.columns:
+        
+        df["deviceId"] = df["SystemProperties"].apply(
+            lambda props: props.get("iothub-connection-device-id", None)
+        )
 
     # ── Unify timestamp field ────────────────────────────────────────────────
     # The Azure Function (index.js) stores the field as 'timestamp'.
@@ -532,7 +580,7 @@ else:
             step=1,
         )
 
-        if st.button("Send period command", use_container_width=True):
+        if st.button("Send period command", width='stretch'):
             try:
                 send_cloud_to_device_message(
                     selected_device,
@@ -559,7 +607,7 @@ else:
             help="When enabled, the dashboard sends gps:true. When disabled, it sends gps:false.",
         )
 
-        if st.button("Send GPS command", use_container_width=True):
+        if st.button("Send GPS command", width='stretch'):
             try:
                 send_cloud_to_device_message(
                     selected_device,
@@ -631,7 +679,7 @@ with chart_col1:
             annotation_font_size=11,
             annotation_font_color="#b71c1c",
         )
-        st.plotly_chart(fig_temp, use_container_width=True)
+        st.plotly_chart(fig_temp, width='stretch')
     else:
         st.markdown(
             '<div class="empty-state">No temperature readings available.</div>',
@@ -660,7 +708,7 @@ with chart_col2:
             annotation_font_size=11,
             annotation_font_color="#e65100",
         )
-        st.plotly_chart(fig_hum, use_container_width=True)
+        st.plotly_chart(fig_hum, width='stretch')
     else:
         st.markdown(
             '<div class="empty-state">No humidity readings available.</div>',
@@ -683,7 +731,7 @@ if "latitude" in df.columns and "longitude" in df.columns:
             if col in gps_df.columns
         }
 
-        fig_map = px.scatter_mapbox(
+        fig_map = px.scatter_map(
             gps_df,
             lat="lat", lon="lon",
             hover_data=hover_cols,
@@ -700,7 +748,7 @@ if "latitude" in df.columns and "longitude" in df.columns:
             font=dict(family="Inter, sans-serif", size=12),
             title_font=dict(size=13, color="#0f2544"),
         )
-        st.plotly_chart(fig_map, use_container_width=True)
+        st.plotly_chart(fig_map, width='stretch')
 
     else:
         st.markdown(
@@ -728,7 +776,7 @@ preferred_columns = [
     "temperature", "humidity",
     "linear_speed", "lineal_speed",
     "latitude", "longitude", "course",
-    "acceleration", "angular_speed",
+    "acceleration", "angular_speed", "new_gps", "new_period"
 ]
 
 columns_to_show = [
@@ -746,7 +794,28 @@ display_df = df[columns_to_show].copy()
 if "when" in display_df.columns:
     display_df = display_df.sort_values("when", ascending=False)
 
-st.dataframe(display_df, use_container_width=True, hide_index=True)
+if "acceleration" in display_df.columns:
+    display_df["acc_x"] = display_df["acceleration"].apply(
+        lambda a: a[0] if isinstance(a, list) and len(a) > 0 else None
+    )
+    display_df["acc_y"] = display_df["acceleration"].apply(
+        lambda a: a[1] if isinstance(a, list) and len(a) > 1 else None
+    )
+    display_df = display_df.drop(columns=["acceleration"])
+
+
+if "angular_speed" in display_df.columns:
+    display_df["ang_rot_x"] = display_df["angular_speed"].apply(
+        lambda a: a[0] if isinstance(a, list) and len(a) > 0 else None
+    )
+    display_df["ang_rot_y"] = display_df["angular_speed"].apply(
+        lambda a: a[1] if isinstance(a, list) and len(a) > 1 else None
+    )
+    display_df["ang_rot_z"] = display_df["angular_speed"].apply(
+        lambda a: a[2] if isinstance(a, list) and len(a) > 2 else None
+    )
+    display_df = display_df.drop(columns=["angular_speed"])
+st.dataframe(display_df, width='stretch', hide_index=True)
 
 
 st.markdown(
