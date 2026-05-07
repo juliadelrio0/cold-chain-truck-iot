@@ -1,0 +1,6 @@
+streamlit
+azure-cosmos
+python-dotenv
+pandas
+plotly
+azure-iot-hub
